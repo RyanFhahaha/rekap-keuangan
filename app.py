@@ -1,114 +1,175 @@
-from flask import Flask, render_template_string, request, redirect, url_for
-import json, os
-from datetime import datetime
+import streamlit as st
+import pandas as pd
+from io import BytesIO
+import os
 
-app = Flask(__name__)
-DATA_FILE = "data_keuangan.json"
+st.set_page_config(page_title="Rekap Keuangan Event", layout="wide")
+st.title("📊 Rekap Keuangan Event — JIExpo")
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {"transaksi": []}
+tab1, tab2, tab3 = st.tabs(["✏️ Input Manual", "📁 Upload CSV", "🔴 Live Google Sheets"])
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+# TAB 1 — INPUT MANUAL
+with tab1:
+    st.subheader("Input Transaksi Manual")
 
-HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rekap Keuangan</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;color:#333}
-header{background:#2563eb;color:white;padding:20px 40px}
-header h1{font-size:1.8rem}
-header p{opacity:.85;font-size:.95rem}
-.container{max-width:900px;margin:30px auto;padding:0 20px}
-.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:30px}
-.card{background:white;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
-.card h3{font-size:.85rem;color:#888;margin-bottom:6px;text-transform:uppercase}
-.card .amount{font-size:1.5rem;font-weight:700}
-.pemasukan .amount{color:#16a34a}
-.pengeluaran .amount{color:#dc2626}
-.saldo .amount{color:#2563eb}
-.section{background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.07);margin-bottom:30px}
-.section h2{margin-bottom:16px;font-size:1.1rem}
-.form-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;align-items:end}
-label{display:block;font-size:.82rem;color:#666;margin-bottom:4px}
-input,select{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:.9rem}
-button{padding:9px 20px;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;font-size:.9rem}
-button:hover{background:#1d4ed8}
-table{width:100%;border-collapse:collapse}
-th{background:#f8fafc;padding:10px 14px;text-align:left;font-size:.82rem;color:#888;text-transform:uppercase;border-bottom:2px solid #e5e7eb}
-td{padding:12px 14px;border-bottom:1px solid #f1f5f9;font-size:.9rem}
-.badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600}
-.badge-pemasukan{background:#dcfce7;color:#16a34a}
-.badge-pengeluaran{background:#fee2e2;color:#dc2626}
-.empty{text-align:center;color:#aaa;padding:40px}
-.del{background:#fee2e2;color:#dc2626;padding:4px 10px;font-size:.78rem}
-</style></head><body>
-<header><h1>Rekap Keuangan</h1><p>Catat dan pantau pemasukan serta pengeluaran Anda</p></header>
-<div class="container">
-<div class="summary">
-<div class="card pemasukan"><h3>Total Pemasukan</h3><div class="amount">Rp {{ "{:,.0f}".format(masuk) }}</div></div>
-<div class="card pengeluaran"><h3>Total Pengeluaran</h3><div class="amount">Rp {{ "{:,.0f}".format(keluar) }}</div></div>
-<div class="card saldo"><h3>Saldo</h3><div class="amount">Rp {{ "{:,.0f}".format(saldo) }}</div></div>
-</div>
-<div class="section"><h2>Tambah Transaksi</h2>
-<form method="POST" action="/tambah"><div class="form-row">
-<div><label>Tanggal</label><input type="date" name="tanggal" value="{{ today }}" required></div>
-<div><label>Keterangan</label><input type="text" name="keterangan" placeholder="Misal: Gaji, Makan..." required></div>
-<div><label>Jumlah (Rp)</label><input type="number" name="jumlah" placeholder="0" min="1" required></div>
-<div><label>Jenis</label><select name="jenis"><option value="pemasukan">Pemasukan</option><option value="pengeluaran">Pengeluaran</option></select></div>
-<div><label>&nbsp;</label><button type="submit">Simpan</button></div>
-</div></form></div>
-<div class="section"><h2>Riwayat Transaksi</h2>
-{% if data %}
-<table><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jenis</th><th>Jumlah</th><th></th></tr></thead>
-<tbody>{% for t in data|reverse %}<tr>
-<td>{{ t.tanggal }}</td><td>{{ t.keterangan }}</td>
-<td><span class="badge badge-{{ t.jenis }}">{{ t.jenis.capitalize() }}</span></td>
-<td>Rp {{ "{:,.0f}".format(t.jumlah) }}</td>
-<td><form method="POST" action="/hapus/{{ loop.revindex0 }}" style="display:inline">
-<button class="del" onclick="return confirm('Hapus?')">Hapus</button></form></td>
-</tr>{% endfor %}</tbody></table>
-{% else %}<div class="empty">Belum ada transaksi. Tambahkan transaksi pertama Anda!</div>{% endif %}
-</div></div></body></html>"""
+    CSV_FILE = "transaksi.csv"
 
-@app.route("/")
-def index():
-    data = load_data()
-    t = data["transaksi"]
-    masuk = sum(x["jumlah"] for x in t if x["jenis"] == "pemasukan")
-    keluar = sum(x["jumlah"] for x in t if x["jenis"] == "pengeluaran")
-    return render_template_string(HTML, data=t, masuk=masuk, keluar=keluar,
-        saldo=masuk-keluar, today=datetime.now().strftime("%Y-%m-%d"))
+    if not os.path.exists(CSV_FILE):
+        pd.DataFrame(columns=["tanggal","kategori","keterangan","jumlah","nama"]) \
+          .to_csv(CSV_FILE, index=False)
 
-@app.route("/tambah", methods=["POST"])
-def tambah():
-    data = load_data()
-    data["transaksi"].append({
-        "tanggal": request.form["tanggal"],
-        "keterangan": request.form["keterangan"],
-        "jumlah": float(request.form["jumlah"]),
-        "jenis": request.form["jenis"]
-    })
-    save_data(data)
-    return redirect(url_for("index"))
+    with st.form("form_input"):
+        col1, col2 = st.columns(2)
+        with col1:
+            tanggal    = st.date_input("Tanggal")
+            kategori   = st.selectbox("Kategori",
+                         ["Catering","Dekorasi","Transportasi","Vendor","Lainnya"])
+            keterangan = st.text_input("Keterangan")
+        with col2:
+            jumlah = st.number_input("Jumlah (Rp)", min_value=0, step=10000)
+            nama   = st.text_input("Nama Pencatat")
 
-@app.route("/hapus/<int:idx>", methods=["POST"])
-def hapus(idx):
-    data = load_data()
-    real = len(data["transaksi"]) - 1 - idx
-    if 0 <= real < len(data["transaksi"]):
-        data["transaksi"].pop(real)
-        save_data(data)
-    return redirect(url_for("index"))
+        submit = st.form_submit_button("💾 Simpan Transaksi")
 
-if __name__ == "__main__":
-    print("=" * 50)
-    print("  Rekap Keuangan berjalan!")
-    print("  Buka: http://localhost:5000")
-    print("=" * 50)
-    app.run(debug=False, port=5000)
+        if submit:
+            baru = pd.DataFrame([[tanggal, kategori, keterangan, jumlah, nama]],
+                                 columns=["tanggal","kategori","keterangan","jumlah","nama"])
+            baru.to_csv(CSV_FILE, mode="a", header=False, index=False)
+            st.success("✅ Transaksi tersimpan!")
+
+    st.divider()
+    st.subheader("Data Tersimpan")
+    if os.path.exists(CSV_FILE):
+        df_lokal = pd.read_csv(CSV_FILE)
+        if not df_lokal.empty:
+            df_lokal["jumlah"] = pd.to_numeric(df_lokal["jumlah"], errors="coerce").fillna(0)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Transaksi", len(df_lokal))
+            col2.metric("Total Pengeluaran", f"Rp {df_lokal['jumlah'].sum():,.0f}")
+            col3.metric("Rata-rata", f"Rp {df_lokal['jumlah'].mean():,.0f}")
+
+            rekap = df_lokal.groupby("kategori")["jumlah"].sum().reset_index()
+            rekap.columns = ["Kategori", "Total (Rp)"]
+            st.dataframe(rekap, use_container_width=True)
+            st.bar_chart(rekap.set_index("Kategori"))
+            st.dataframe(df_lokal, use_container_width=True)
+
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_lokal.to_excel(writer, sheet_name="Detail", index=False)
+                rekap.to_excel(writer, sheet_name="Rekap", index=False)
+            st.download_button("📥 Download Excel", output.getvalue(), "laporan_manual.xlsx")
+        else:
+            st.info("Belum ada transaksi tersimpan.")
+
+# TAB 2 — UPLOAD CSV
+with tab2:
+    st.subheader("Upload CSV dari Google Sheets")
+    st.caption("Cara export: Google Sheets → File → Download → CSV")
+
+    file = st.file_uploader("Upload file CSV", type=["csv"])
+
+    if file:
+        df = pd.read_csv(file)
+
+        if list(df.columns) != ["tanggal","kategori","keterangan","jumlah","nama"]:
+            try:
+                df.columns = ["tanggal","kategori","keterangan","jumlah","nama"]
+            except:
+                st.error("Format kolom tidak cocok. Pastikan urutan: tanggal, kategori, keterangan, jumlah, nama")
+                st.stop()
+
+        df["jumlah"] = pd.to_numeric(df["jumlah"], errors="coerce").fillna(0)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Transaksi", len(df))
+        col2.metric("Total Pengeluaran", f"Rp {df['jumlah'].sum():,.0f}")
+        col3.metric("Rata-rata", f"Rp {df['jumlah'].mean():,.0f}")
+
+        st.subheader("Rekap per Kategori")
+        rekap = df.groupby("kategori")["jumlah"].sum().reset_index()
+        rekap.columns = ["Kategori", "Total (Rp)"]
+        st.dataframe(rekap, use_container_width=True)
+        st.bar_chart(rekap.set_index("Kategori"))
+
+        st.subheader("Detail Transaksi")
+        st.dataframe(df, use_container_width=True)
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Detail", index=False)
+            rekap.to_excel(writer, sheet_name="Rekap", index=False)
+        st.download_button("📥 Download Laporan Excel", output.getvalue(), "laporan_csv.xlsx")
+
+# TAB 3 — LIVE GOOGLE SHEETS
+with tab3:
+    st.subheader("Live dari Google Sheets (Otomatis)")
+    st.caption("Data refresh otomatis tiap 60 detik. Butuh file credentials.json di folder yang sama.")
+
+    CREDS_FILE = "credentials.json"
+    SHEET_NAME = "transaksi-jiexpo"
+
+    if not os.path.exists(CREDS_FILE):
+        st.warning("⚠️ File credentials.json tidak ditemukan.")
+        st.markdown("""
+**Cara setup:**
+1. Buka [console.cloud.google.com](https://console.cloud.google.com)
+2. Buat project baru
+3. Enable **Google Sheets API** dan **Google Drive API**
+4. Buat **Service Account** → download JSON-nya
+5. Rename jadi `credentials.json`, taruh di folder `rekap-keuangan`
+6. Buka Google Sheets `transaksi-jiexpo` → Share → paste email dari credentials.json → Editor
+        """)
+    else:
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        @st.cache_resource
+        def connect_sheets():
+            scopes = ["https://spreadsheets.google.com/feeds",
+                      "https://www.googleapis.com/auth/drive"]
+            creds = Credentials.from_service_account_file(CREDS_FILE, scopes=scopes)
+            return gspread.authorize(creds)
+
+        @st.cache_data(ttl=60)
+        def load_data():
+            client = connect_sheets()
+            sheet = client.open(SHEET_NAME).sheet1
+            return pd.DataFrame(sheet.get_all_records())
+
+        if st.button("🔄 Refresh Data Sekarang"):
+            st.cache_data.clear()
+
+        try:
+            df = load_data()
+            df.columns = ["tanggal","kategori","keterangan","jumlah","nama"]
+            df["jumlah"] = pd.to_numeric(df["jumlah"], errors="coerce").fillna(0)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Transaksi", len(df))
+            col2.metric("Total Pengeluaran", f"Rp {df['jumlah'].sum():,.0f}")
+            col3.metric("Rata-rata", f"Rp {df['jumlah'].mean():,.0f}")
+
+            kategori_filter = st.multiselect("Filter Kategori",
+                                              df["kategori"].unique(),
+                                              default=list(df["kategori"].unique()))
+            df_filtered = df[df["kategori"].isin(kategori_filter)]
+
+            st.subheader("Rekap per Kategori")
+            rekap = df_filtered.groupby("kategori")["jumlah"].sum().reset_index()
+            rekap.columns = ["Kategori", "Total (Rp)"]
+            st.dataframe(rekap, use_container_width=True)
+            st.bar_chart(rekap.set_index("Kategori"))
+
+            st.subheader("Detail Transaksi")
+            st.dataframe(df_filtered, use_container_width=True)
+
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_filtered.to_excel(writer, sheet_name="Detail", index=False)
+                rekap.to_excel(writer, sheet_name="Rekap", index=False)
+            st.download_button("📥 Download Laporan Excel", output.getvalue(), "laporan_live.xlsx")
+
+        except Exception as e:
+            st.error(f"Gagal connect: {e}")

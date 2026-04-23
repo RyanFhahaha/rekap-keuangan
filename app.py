@@ -119,7 +119,7 @@ client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/your-s
         @st.cache_data(ttl=60)
         def load_data():
             client = connect_sheets()
-            sheet = client.open(SHEET-NAME).sheet1
+            sheet = client.open(SHEET_NAME).sheet1
             return pd.DataFrame(sheet.get_all_records())
 
         if st.button("🔄 Refresh Data Sekarang"):
